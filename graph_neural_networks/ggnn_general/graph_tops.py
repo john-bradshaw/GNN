@@ -23,7 +23,7 @@ class GraphFeaturesFromStackedNodeFeaturesBase(nn.Module):
     def __init__(self, mlp_project_up, mlp_gate, mlp_func, cuda_details=None):
         super().__init__()
         self.mlp_project_up = mlp_project_up  # net that goes from [None, h'] to [None, j] with j>h usually
-        self.mlp_gate = mlp_gate  # net that goes from [None, h'] to [None, 1]
+        self.mlp_gate = mlp_gate  # net that goes from [None, h'] to [None, 1 or h']
         self.mlp_func = mlp_func  # net that goes from [None, j] to [None, q]
         self.cuda_details = cuda_details
 
@@ -101,8 +101,8 @@ class GraphFeaturesStackIndexAdd(GraphFeaturesFromStackedNodeFeaturesBase):
         """
 
         proj_up = self.mlp_project_up(node_features)  # [v*, j]
-        gate_logit = self.mlp_gate(node_features)  # [v*, 1]
-        gate = torch.sigmoid(gate_logit)  # [v*, j]
+        gate_logit = self.mlp_gate(node_features)  # [v*, _]
+        gate = torch.sigmoid(gate_logit)  # [v*, _]
         gated_vals = gate * proj_up
 
         num_graphs = node_to_graph_id.max() + 1
