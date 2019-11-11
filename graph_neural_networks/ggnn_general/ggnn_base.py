@@ -11,7 +11,6 @@ class GGNNParams(typing.NamedTuple):
     hlayer_size: int
     edge_names: typing.List[str]  # string of the node groups which are associated with different relationships.
     # SHOULD BE ORDERED THE SAME WAY AS THE ADJACENCY MATRIX FOURTH DIM
-    cuda_details: utils.CudaDetails
     num_layers: int  # this is the number of time steps to do message passing. often denoted T in papers.
 
 

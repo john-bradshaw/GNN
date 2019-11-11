@@ -12,10 +12,11 @@ from ..ggnn_general import ggnn_base
 
 
 class GGNNPad(ggnn_base.GGNNBase):
-    def forward(self, atom_feat: torch.FloatTensor, adj: torch.FloatTensor):
+    def forward(self, atom_feat: torch.FloatTensor, adj: torch.FloatTensor, nodes_on_mask):
         """
         :param atom_feat: tensor of starting atom features, shape is [b, v, h]
         :param adj: the adjacency matrix, shape is [b, v, v, e]
+        :param nodes_on_mask: Boolean array indicating which nodes actual exist, shape is [b,v]
         :return: the computed features for each node, shape is [b, v, h]
         """
 
@@ -24,7 +25,7 @@ class GGNNPad(ggnn_base.GGNNBase):
         hidden = atom_feat.view(-1, num_hidden)  # [b*v, h]
         for t in range(self.params.num_layers):
             message = torch.zeros(batch_size, num_nodes, self.params.hlayer_size,
-                                                    device=self.params.cuda_details.device_str,
+                                                    device=str(hidden.device),
                                                     dtype=data_types.TORCH_FLT)  # [b, v, h]
             for e, edge_type in enumerate(self.params.edge_names):
                 M_t = self.A_hidden[edge_type + ggnn_base.APPENDER_TO_HIDDEN_NAMES](hidden)  # [b*v, h]
@@ -35,6 +36,9 @@ class GGNNPad(ggnn_base.GGNNBase):
             hidden = self.GRU_hidden(message_unrolled, hidden)  # [b*v, h]
 
         hidden = hidden.view(batch_size, num_nodes, num_hidden)  # [b, v, h]
+        hidden = hidden * nodes_on_mask[:, :, None].to(hidden.dtype)
+        # ^ the nodes which dont exist may have picked up non zero values (from bias etc from GRU)
+        # -- therefore turn these back off
         return hidden
 
 

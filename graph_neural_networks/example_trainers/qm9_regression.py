@@ -12,28 +12,27 @@ from torch import optim
 
 from ..core import utils
 from ..datasets import qm9
+from ..datasets import loader
 
 
 DATA_DETAILS = {
     'CHEM_ACC': 0.066513725,
-    'train_data_path':  path.join(utils.get_qm9_data_path(), "molecules_train.json"),
-    'valid_data_path':  path.join(utils.get_qm9_data_path(), "molecules_valid.json"),
+    'train_data_path':  path.join(loader.get_qm9_data_path(), "molecules_train.json"),
+    'valid_data_path':  path.join(loader.get_qm9_data_path(), "molecules_valid.json"),
 }
 
 
 class ExperimentParams:
     def __init__(self,
-                 cuda_details=None,
                  learning_rate=1e-4,
                  num_epochs=100,
-                 batch_size_train=5,
+                 batch_size_train=64,
                  batch_size_val=20,
                  T=5,
                  hidden_layer_size=100,
                  num_workers=0,
                  ):
 
-        self.cuda_details: utils.CudaDetails = utils.CudaDetails(use_cuda=True) if cuda_details is None else cuda_details
         self.learning_rate = learning_rate
         self.num_epochs = num_epochs
         self.batch_size_train = batch_size_train
@@ -78,7 +77,7 @@ def validate(validation_data_loader, model, exp_parts: ExperimentParts):
 
     losses = 0.0
     num_done = 0
-    criterion = nn.L1Loss(size_average=False)
+    criterion = nn.L1Loss(reduction='sum')
     with torch.no_grad():
         for i, (data) in enumerate(validation_data_loader):
             model_input, targets = exp_parts.data_split_and_cudify_func(data)
@@ -130,6 +129,7 @@ def train(train_dataloader, model, exp_parts: ExperimentParts, optimizer, criter
 
 
 def main_runner(exp_parts: ExperimentParts):
+    torch.manual_seed(56145612)
 
     # === Deal with the data! ===
     trsfm = exp_parts.create_transform()
@@ -145,7 +145,8 @@ def main_runner(exp_parts: ExperimentParts):
 
     # === Set up the model ===
     ggnn = exp_parts.create_model()
-    ggnn = exp_parts.exp_params.cuda_details.return_cudafied(ggnn)
+    if torch.cuda.is_available():
+        ggnn = ggnn.cuda()
 
     # === Set up loss and the trainer ===
     criterion = nn.MSELoss()
@@ -168,8 +169,8 @@ def main_runner(exp_parts: ExperimentParts):
         best_flag = val_loss < best_val_loss
         if best_flag:
             best_val_loss = val_loss
-        utils.save_checkpoint({
+        torch.save({
                 'num_epochs_completed': epoch_num + 1,
                 'state_dict': ggnn.state_dict(),
                 'optimizer': optimiser.state_dict(),
-            }, best_flag, filename=f"qm9_mu_{str(type(exp_parts).__name__)}_epochs_done_{epoch_num + 1}")
+            }, f"chkpts/qm9_mu_{str(type(exp_parts).__name__)}_epochs_done_{epoch_num + 1}")

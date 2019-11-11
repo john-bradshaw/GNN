@@ -3,6 +3,7 @@ import numpy as np
 import torch
 from torch import nn
 
+import graph_neural_networks.sparse_pattern.ggnn_sparse
 from graph_neural_networks.datasets import qm9
 from graph_neural_networks.core import utils
 from graph_neural_networks.core import data_types
@@ -15,26 +16,26 @@ from graph_neural_networks.example_trainers import qm9_regression
 
 
 class GGNNModel(nn.Module):
-    def __init__(self, hidden_layer_size, edge_names, cuda_details, T):
+    def __init__(self, hidden_layer_size, edge_names, T):
         super().__init__()
         self.ggnn = ggnn_sparse.GGNNSparse(
-            ggnn_base.GGNNParams(hidden_layer_size, edge_names, cuda_details, T))
+            ggnn_base.GGNNParams(hidden_layer_size, edge_names, T))
 
-        mlp_project_up = mlp.MLP(mlp.MlpParams(hidden_layer_size, 1, []))
-        mlp_gate = mlp.MLP(mlp.MlpParams(hidden_layer_size, 1, []))
+        mlp_project_up = mlp.get_mlp(mlp.MlpParams(hidden_layer_size, 1, []))
+        mlp_gate = mlp.get_mlp(mlp.MlpParams(hidden_layer_size, 1, []))
         mlp_down = lambda x: x
 
-        self.ggnn_top = graph_tops.GraphFeaturesStackIndexAdd(mlp_project_up, mlp_gate, mlp_down, cuda_details)
+        self.ggnn_top = graph_neural_networks.sparse_pattern.ggnn_sparse.GraphFeaturesStackIndexAdd(mlp_project_up, mlp_gate, mlp_down)
 
-    def forward(self, g_adjlist: graph_as_adj_list.GraphAsAdjList):
-        g_adjlist: graph_as_adj_list.GraphAsAdjList = self.ggnn(g_adjlist)
+    def forward(self, g_adjlist: graph_as_adj_list.DirectedGraphAsAdjList):
+        g_adjlist: graph_as_adj_list.DirectedGraphAsAdjList = self.ggnn(g_adjlist)
         graph_feats = self.ggnn_top(g_adjlist.node_features, g_adjlist.node_to_graph_id)
         return graph_feats
 
 
 class DatasetTransform(object):
     def __init__(self, hidden_layer_size, edge_types_as_ints):
-        self.e_to_adjlistdict = qm9.EdgeListToAdjList(edge_types_as_ints)
+        self.e_to_adjlistdict = qm9.EdgeListToAdjListUndirected(edge_types_as_ints)
         self.nf_em = qm9.NodeFeaturesEmbedder(hidden_layer_size)
 
     def __call__(self, edge, node_features):
@@ -44,8 +45,8 @@ class DatasetTransform(object):
 
         node_features = self.nf_em(node_features)
 
-        g_adjlist = graph_as_adj_list.GraphAsAdjList(node_features, edge_type_to_adjacency_list_map,
-                                                     np.zeros(node_features.shape[0], dtype=data_types.NP_LONG))
+        g_adjlist = graph_as_adj_list.DirectedGraphAsAdjList(node_features, edge_type_to_adjacency_list_map,
+                                                             np.zeros(node_features.shape[0], dtype=data_types.NP_LONG))
         return g_adjlist
 
 
@@ -57,7 +58,7 @@ def collate_function(batch):
 
     graphs_as_adjlist_catted = graphs_as_adjlist[0].concatenate(graphs_as_adjlist)
 
-    graphs_as_adjlist_catted.to_torch(cuda_details=utils.CudaDetails(use_cuda=False))
+    graphs_as_adjlist_catted.inplace_from_np_to_torch()
     targets = torch.from_numpy(np.array(targets))
 
     return graphs_as_adjlist_catted, targets
@@ -65,8 +66,7 @@ def collate_function(batch):
 
 class SparseParts(qm9_regression.ExperimentParts):
     def create_model(self):
-        return GGNNModel(self.exp_params.hidden_layer_size, self.exp_params.edge_names,
-                         self.exp_params.cuda_details, self.exp_params.T)
+        return GGNNModel(self.exp_params.hidden_layer_size, self.exp_params.edge_names, self.exp_params.T)
 
     def create_transform(self):
         return DatasetTransform(self.exp_params.hidden_layer_size, self.exp_params.edge_names_as_ints)
@@ -76,8 +76,9 @@ class SparseParts(qm9_regression.ExperimentParts):
 
     def data_split_and_cudify_func(self, data):
         graphs, targets = data
-        graphs.to_cuda(cuda_details=self.exp_params.cuda_details)
-        targets = self.exp_params.cuda_details.return_cudafied(targets)
+        if torch.cuda.is_available():
+            graphs.inplace_torch_to('cuda')
+            targets = targets.cuda()
         return (graphs,), targets
 
 

@@ -1,37 +1,43 @@
 
 import typing
 
+from dataclasses import dataclass
+
 import torch.nn as nn
-import torch.nn.functional as F
 
+from . import data_types
 
-class MlpParams(typing.NamedTuple):
+@dataclass
+class MlpParams:
     input_dim: int
     output_dim: int
     hidden_sizes: typing.List[int]
+    dropout: float = 0.
+    batchnorm: bool = False
+    activation = nn.ReLU
 
 
+def get_mlp(params: MlpParams):
+    params = params
 
-class MLP(nn.Module):
-    #todo:consider adding dropout
+    layer_sizes = [params.input_dim] + params.hidden_sizes + [params.output_dim]
+    layer_dims = list(zip(layer_sizes[:-1], layer_sizes[1:]))
 
-    def __init__(self, params: MlpParams):
-        super(MLP, self).__init__()
-        self.params = params
+    layers = []
+    for i, (input_dim, output_dim) in enumerate(layer_dims):
+        if i != 0:
+            if params.batchnorm:
+                layers.append(nn.BatchNorm1d(input_dim, affine=False))
+            if params.dropout != 0.:
+                layers.append(nn.Dropout(p=params.dropout))
 
-        layer_sizes = [self.params.input_dim] + self.params.hidden_sizes + [self.params.output_dim]
-        layer_dims = zip(layer_sizes[:-1], layer_sizes[1:])
+        layers.append(nn.Linear(input_dim, output_dim))
 
-        self.linears = nn.ModuleList([nn.Linear(input_dim, output_dim) for input_dim, output_dim in layer_dims])
+        last_layer_flag = i == len(layer_dims) - 1
+        if not last_layer_flag:
+            layers.append(params.activation())
 
-    def forward(self, input_tensor):
-        hidden = input_tensor
-        for i, layer in enumerate(self.linears):
-            hidden = layer(hidden)
-            if i < self.num_layers - 1:
-                hidden = F.relu(hidden)
-        return hidden
+    out = nn.Sequential(*layers)
+    out = out.to(dtype=data_types.TORCH_FLT)
+    return out
 
-    @property
-    def num_layers(self):
-        return len(self.linears)

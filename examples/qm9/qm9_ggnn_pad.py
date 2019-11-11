@@ -1,5 +1,6 @@
 
 import numpy as np
+import torch
 from torch.utils import data
 from torch import nn
 
@@ -11,26 +12,26 @@ from graph_neural_networks.example_trainers import qm9_regression
 
 
 class GGNNModel(nn.Module):
-    def __init__(self, hidden_layer_size, edge_names, cuda_details, T):
+    def __init__(self, hidden_layer_size, edge_names, T):
         super().__init__()
         self.ggnn = ggnn_pad.GGNNPad(
-            ggnn_base.GGNNParams(hidden_layer_size, edge_names, cuda_details, T))
+            ggnn_base.GGNNParams(hidden_layer_size, edge_names, T))
 
-        mlp_project_up = mlp.MLP(mlp.MlpParams(hidden_layer_size, 1, []))
-        mlp_gate = mlp.MLP(mlp.MlpParams(hidden_layer_size, 1, []))
+        mlp_project_up = mlp.get_mlp(mlp.MlpParams(hidden_layer_size, 1, []))
+        mlp_gate = mlp.get_mlp(mlp.MlpParams(hidden_layer_size, 1, []))
         mlp_down = lambda x: x
 
         self.ggnn_top = ggnn_pad.GraphFeatureTopOnly(mlp_project_up, mlp_gate, mlp_down)
 
-    def forward(self, feats, adj_mat):
-        node_feats = self.ggnn(feats, adj_mat)
+    def forward(self, feats, adj_mat, node_mask):
+        node_feats = self.ggnn(feats, adj_mat, node_mask)
         graph_feats = self.ggnn_top(node_feats)
         return graph_feats
 
 
 class DatasetTransform(object):
     def __init__(self, hidden_layer_size):
-        self.e_to_am = qm9.EdgeListToAdjMat()
+        self.e_to_am = qm9.EdgeListToAdjMatUndirected()
         self.nf_em = qm9.NodeFeaturesEmbedder(hidden_layer_size)
 
     def __call__(self, edge, node_features):
@@ -43,6 +44,13 @@ def collate_fn(batch):
     targets = [elem[1] for elem in batch]
 
     max_hw = max([am.shape[1] for am in adjacancy_matrices])
+
+    node_mask = []
+    for adj_ in adjacancy_matrices:
+        mask_ = np.zeros(max_hw, dtype=np.bool)
+        mask_[:adj_.shape[0]] = True
+        node_mask.append(mask_)
+
     padded_adj_mats = [
         np.pad(arr, [(0, max_hw - arr.shape[0]), (0, max_hw - arr.shape[1]), (0, 0)], mode='constant', constant_values=0)
         for arr in adjacancy_matrices]
@@ -50,7 +58,7 @@ def collate_fn(batch):
     padded_node_feats = [np.pad(arr, [(0, max_hw - arr.shape[0]), (0, 0)], mode='constant', constant_values=0)
                          for arr in node_features]
 
-    padded_args = tuple(zip(padded_node_feats, padded_adj_mats, targets))
+    padded_args = tuple(zip(padded_node_feats, padded_adj_mats, node_mask, targets))
 
     batch_collated = data.dataloader.default_collate(padded_args)
     return batch_collated
@@ -59,7 +67,7 @@ def collate_fn(batch):
 class PadParts(qm9_regression.ExperimentParts):
     def create_model(self):
         return GGNNModel(self.exp_params.hidden_layer_size, self.exp_params.edge_names,
-                         self.exp_params.cuda_details, self.exp_params.T)
+                          self.exp_params.T)
 
     def create_transform(self):
         return DatasetTransform(self.exp_params.hidden_layer_size)
@@ -68,10 +76,11 @@ class PadParts(qm9_regression.ExperimentParts):
         return collate_fn
 
     def data_split_and_cudify_func(self, data):
-        node_feats, adj_mat, targets = data
-        node_features, adj_mat, target = [self.exp_params.cuda_details.return_cudafied(elem) for elem in
-                                          (node_feats, adj_mat, targets)]
-        return (node_features, adj_mat), target
+        node_feats, adj_mat, node_mask, targets = data
+        if torch.cuda.is_available():
+            node_feats, adj_mat, node_mask, targets = [elem.cuda() for elem in
+                                              (node_feats, adj_mat, node_mask, targets)]
+        return (node_feats, adj_mat, node_mask), targets
 
 
 def main():

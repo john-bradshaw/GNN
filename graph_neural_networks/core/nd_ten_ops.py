@@ -36,27 +36,6 @@ def concatenate(variables: typing.List[Nd_Ten], axis=0) -> Nd_Ten:
     else:
         return torch.cat(variables, dim=axis)
 
-
-def concatenate_maintaining_uniqueness(variables: typing.List[Nd_Ten], axis=0, inplace=False) -> Nd_Ten:
-    """
-    Variant where we ensure that all the elements of later items in the are shifted up so that they maintain equal value
-    """
-    prev_max = [0]
-
-    def mapping_func(var):
-
-        if inplace:
-            var += prev_max[0]
-        else:
-            var = var + prev_max[0]
-
-        prev_max[0] = var.max()
-        return var
-
-    variables = list(map(mapping_func, variables))
-    return concatenate(variables, axis=axis)
-
-
 def pad_right_2d(var: Nd_Ten, pad_right_amnt: int) -> Nd_Ten:
     variant = work_out_nd_or_tensor(var)
     if variant is NdTensor.NUMPY:
@@ -72,23 +51,17 @@ def pad_bottom_2d(var: Nd_Ten, pad_bottom_amnt: int) -> Nd_Ten:
     else:
         return F.pad(var, (0, 0, 0, pad_bottom_amnt), mode='constant', value=0)
 
-
-
-
-
-def cumsum(var: Nd_Ten) -> Nd_Ten:
+def bincount(var: Nd_Ten):
     variant = work_out_nd_or_tensor(var)
     if variant is NdTensor.NUMPY:
-        return np.cumsum(var, 0)
+        return np.bincount(var)
     else:
-        return torch.cumsum(var, 0)
+        return torch.bincount(var)
 
-
-def add_zero_at_start_of_one_d(var: Nd_Ten) -> Nd_Ten:
+def to_np(var: Nd_Ten, force_copy=False):
     variant = work_out_nd_or_tensor(var)
     if variant is NdTensor.NUMPY:
-        start = np.array([0], dtype=var.dtype)
+        var = np.copy(var) if force_copy else var
+        return var
     else:
-        start = torch.tensor([0], dtype=var.dtype, device=str(var.device))
-    return concatenate([start, var])
-
+        return var.detach().cpu().numpy()
