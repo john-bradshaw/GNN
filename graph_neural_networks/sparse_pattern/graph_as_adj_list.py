@@ -17,7 +17,7 @@ class DirectedGraphAsAdjList(object):
         :param node_features: [v*, h]. Matrix of node features
         :param edge_type_to_adjacency_list_map: dictionary which for every edge type (represented by keys) we have an
         [2, E*] matrix, each row in here represents the bond. Indexing into the node features matrix
-        Edged go from [1,;] index to [0,:]
+        Edges go from [1,;] index to [0,:]
         :param node_to_graph_id: [v*] (should be in order ie nodes in the same graph should be consecutive).
          We have one for each node.For each node it indexes into the node for which they belong.
         """
